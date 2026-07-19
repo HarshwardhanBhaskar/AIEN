@@ -1,0 +1,25 @@
+# prometheus.yml
+global:
+  scrape_interval: 5s     # Scrape metrics every 5 seconds (rapid updates for testing)
+  evaluation_interval: 5s # Evaluate rules every 5 seconds
+
+scrape_configs:
+  - job_name: 'aien-gateway'
+    static_configs:
+      - targets: ['gateway:8081']
+
+  - job_name: 'aien-intent-service'
+    static_configs:
+      - targets: ['intent-service:8082']
+
+  - job_name: 'aien-scheduler'
+    static_configs:
+      - targets: ['scheduler:8084']
+
+  - job_name: 'aien-execution-engine'
+    static_configs:
+      - targets: ['execution-engine:8085']
+
+  - job_name: 'aien-validator'
+    static_configs:
+      - targets: ['validator:8086']

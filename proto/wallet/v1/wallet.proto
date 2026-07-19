@@ -1,0 +1,57 @@
+syntax = "proto3";
+
+package aien.wallet.v1;
+
+option go_package = "github.com/aien-platform/aien/proto/wallet/v1;walletv1";
+
+service WalletService {
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+  rpc Credit(CreditRequest) returns (CreditResponse);
+  rpc Debit(DebitRequest) returns (DebitResponse);
+  rpc Transfer(TransferRequest) returns (TransferResponse);
+}
+
+message GetBalanceRequest {
+  string account_id = 1;
+}
+
+message GetBalanceResponse {
+  string account_id = 1;
+  double balance = 2;
+}
+
+message CreditRequest {
+  string account_id = 1;
+  double amount = 2;
+  string reference_id = 3;
+}
+
+message CreditResponse {
+  string account_id = 1;
+  double new_balance = 2;
+}
+
+message DebitRequest {
+  string account_id = 1;
+  double amount = 2;
+  string reference_id = 3;
+}
+
+message DebitResponse {
+  string account_id = 1;
+  double new_balance = 2;
+}
+
+message TransferRequest {
+  string from_account_id = 1;
+  string to_account_id = 2;
+  double amount = 3;
+  string reference_id = 4;
+}
+
+message TransferResponse {
+  string from_account_id = 1;
+  string to_account_id = 2;
+  double from_new_balance = 3;
+  double to_new_balance = 4;
+}

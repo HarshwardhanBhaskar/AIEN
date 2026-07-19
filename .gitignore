@@ -1,0 +1,39 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+gateway.exe
+intent-service.exe
+execution-engine.exe
+wallet.exe
+scheduler.exe
+validator.exe
+
+# Certificates / Secrets (Crucial for Security!)
+certs/
+*.pem
+*.key
+
+# Data & Datasets
+data_kaggle/
+data kaggle.zip
+data/
+*.db
+*.log
+
+# OS / IDE
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+
+# Go dependencies and workspace files (unless sharing workspace configuration)
+# go.work
+# go.work.sum

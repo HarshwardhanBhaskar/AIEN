@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AIEN Control Center & Block Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-orb"></div>
+        <h1>AIEN</h1>
+        <span class="badge">Control Center</span>
+      </div>
+      <div class="header-settings" style="display: flex; align-items: center; gap: 12px;">
+        <span class="user-profile" id="userProfile" style="font-size: 13px; color: #a0aec0; font-weight: 500; display: none;">admin</span>
+        <button id="btnLogout" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; border-radius: 4px; cursor: pointer; transition: all 0.2s; display: none;">Logout</button>
+      </div>
+      <div class="system-status">
+        <span class="status-indicator online"></span>
+        <span class="status-text">Network Operational</span>
+      </div>
+    </header>
+
+    <!-- Metrics Grid -->
+    <div class="dashboard-grid">
+      <!-- Left Column: Key Management & Submission -->
+      <div class="left-column">
+        <!-- Key Management Card -->
+        <section class="card panel-keys">
+          <div class="card-header">
+            <span class="card-icon">🔑</span>
+            <h2>Client Key Management</h2>
+          </div>
+          <div class="card-body">
+            <p class="description">Generate cryptographic Ed25519 keypairs locally inside your browser using the native Web Crypto API.</p>
+            <div class="key-field">
+              <label>Public Key (Hex)</label>
+              <input type="text" id="publicKey" readonly placeholder="Click generate to create keypair...">
+            </div>
+            <div class="key-field">
+              <label>Private Key (Seed Hex)</label>
+              <input type="password" id="privateKey" readonly placeholder="Private key seed is kept in memory...">
+            </div>
+            <button id="btnGenerateKeys" class="btn btn-primary">Generate Keypair</button>
+          </div>
+        </section>
+
+        <!-- Intent Ingestion Card -->
+        <section class="card panel-ingest">
+          <div class="card-header">
+            <span class="card-icon">🚀</span>
+            <h2>Submit Signed Intent</h2>
+          </div>
+          <div class="card-body">
+            <form id="intentForm">
+              <div class="form-row">
+                <div class="form-field">
+                  <label for="intentType">Intent Type</label>
+                  <select id="intentType">
+                    <option value="TRANSFER">TRANSFER</option>
+                    <option value="COMPUTE">COMPUTE</option>
+                  </select>
+                </div>
+                <div class="form-field">
+                  <label for="submitterId">Submitter ID</label>
+                  <input type="text" id="submitterId" value="user-alice-001" required>
+                </div>
+              </div>
+              <div class="form-field">
+                <label for="payload">Payload Data (JSON format)</label>
+                <textarea id="payload" rows="3" required>{"from":"alice","to":"bob","amount":100}</textarea>
+              </div>
+              <div class="crypto-details">
+                <div class="details-header">
+                  <span>Cryptographic Signature Payload</span>
+                  <span class="badge badge-sec">Ed25519</span>
+                </div>
+                <div id="sigBytesPreview" class="sig-preview">INTENT_TYPE_TRANSFER|user-alice-001|{"from":"alice","to":"bob","amount":100}</div>
+              </div>
+              <button type="submit" id="btnSubmitIntent" class="btn btn-success" disabled>Sign & Submit Intent</button>
+            </form>
+          </div>
+        </section>
+      </div>
+
+      <!-- Right Column: Active Pipeline & Explorer -->
+      <div class="right-column">
+        <!-- Pipeline Monitor -->
+        <section class="card panel-pipeline">
+          <div class="card-header">
+            <span class="card-icon">📊</span>
+            <h2>Active Transaction Pipeline</h2>
+          </div>
+          <div class="card-body">
+            <div class="pipeline-columns">
+              <div class="pipeline-col">
+                <div class="col-title">Pending</div>
+                <div class="pipeline-list" id="listPending"></div>
+              </div>
+              <div class="pipeline-col">
+                <div class="col-title">Scheduled</div>
+                <div class="pipeline-list" id="listScheduled"></div>
+              </div>
+              <div class="pipeline-col">
+                <div class="col-title">Executing</div>
+                <div class="pipeline-list" id="listExecuting"></div>
+              </div>
+              <div class="pipeline-col">
+                <div class="col-title">Completed</div>
+                <div class="pipeline-list" id="listCompleted"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Block Explorer -->
+        <section class="card panel-explorer">
+          <div class="card-header">
+            <span class="card-icon">⛓️</span>
+            <h2>WAL Ledger Block Explorer</h2>
+          </div>
+          <div class="card-body">
+            <div class="table-container">
+              <table class="explorer-table">
+                <thead>
+                  <tr>
+                    <th>Index</th>
+                    <th>Intent ID</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Previous Hash</th>
+                    <th>Block Hash</th>
+                  </tr>
+                </thead>
+                <tbody id="ledgerBody">
+                  <tr>
+                    <td colspan="6" class="empty-state">No blocks synced yet. Submit an intent above!</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Login Overlay -->
+  <div id="loginOverlay" class="login-overlay">
+    <div class="login-card">
+      <div class="login-header">
+        <div class="logo-orb"></div>
+        <h2>AIEN Platform</h2>
+        <p>Control Center & Block Explorer</p>
+      </div>
+      <form id="loginForm">
+        <div class="form-field" style="margin-bottom: 16px;">
+          <label for="loginUsername" style="display: block; margin-bottom: 6px; font-size: 12px; color: #a0aec0;">Username</label>
+          <input type="text" id="loginUsername" placeholder="Enter username..." required style="width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px; padding: 8px 12px; font-size: 13px;">
+        </div>
+        <div class="form-field" style="margin-bottom: 24px;">
+          <label for="loginPassword" style="display: block; margin-bottom: 6px; font-size: 12px; color: #a0aec0;">Password</label>
+          <input type="password" id="loginPassword" placeholder="Enter password..." required style="width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px; padding: 8px 12px; font-size: 13px;">
+        </div>
+        <button type="submit" id="btnLoginSubmit" class="btn btn-primary" style="width: 100%; padding: 10px; font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Authenticate</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="toastContainer" class="toast-container"></div>
+  <script src="app.js"></script>
+</body>
+</html>

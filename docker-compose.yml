@@ -1,0 +1,229 @@
+# docker-compose.yml
+#
+# AIEN Local Development Environment Orchestration
+#
+# WHY DOCKER COMPOSE?
+# ==================
+# To test AIEN, we need:
+# 1. PostgreSQL (relational database)
+# 2. NATS JetStream (event broker)
+# 3. Intent Service (gRPC server)
+# 4. API Gateway (HTTP proxy)
+#
+# Docker Compose lets us run all 4 components with a single command:
+#   docker-compose up --build
+#
+# Key Features:
+# - Networking: Docker Compose creates a private virtual network. Services can
+#   resolve each other by service name (e.g. "postgres:5432" or "nats:4222").
+# - Startup Ordering: We use "depends_on" with health checks to ensure
+#   the database is ready before the services boot.
+version: '3.8'
+
+services:
+  # --- PostgreSQL Database ---
+  postgres:
+    image: postgres:16-alpine
+    container_name: aien-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=aien
+    volumes:
+      # Persistent volume so database records survive "docker-compose down"
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready is a standard Postgres utility checking if server is up
+      test: ["CMD-SHELL", "pg_isready -U postgres -d aien"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  # --- NATS Message Broker ---
+  nats:
+    image: nats:2.10-alpine
+    container_name: aien-nats
+    ports:
+      - "4222:4222" # Client port
+      - "8222:8222" # HTTP monitoring/dashboard
+    # -js flag is CRITICAL. It enables JetStream (persistent streams).
+    command: ["-js"]
+    volumes:
+      - natsdata:/data
+
+  # --- AIEN Intent Service ---
+  intent-service:
+    build:
+      context: .
+      dockerfile: intent-service/Dockerfile
+    container_name: aien-intent-service
+    ports:
+      - "50051:50051"
+    environment:
+      - INTENT_SERVICE_PORT=:50051
+      # Resolve "postgres" using Docker DNS
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/aien?sslmode=disable
+      # Resolve "nats" using Docker DNS
+      - NATS_URL=nats://nats:4222
+      - SCHEMA_PATH=/app/store/schema.sql
+      - TLS_CA_CERT=/app/certs/ca.pem
+      - TLS_SERVER_CERT=/app/certs/server-cert.pem
+      - TLS_SERVER_KEY=/app/certs/server-key.pem
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy # Wait until Postgres ping passes
+      nats:
+        condition: service_started
+
+  # --- AIEN API Gateway ---
+  gateway:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    container_name: aien-gateway
+    ports:
+      - "8081:8081"
+    environment:
+      - GATEWAY_PORT=:8081
+      # Resolve "intent-service" using Docker DNS
+      - INTENT_SERVICE_ADDR=intent-service:50051
+      - REDIS_URL=redis:6379
+      - DISABLE_RATE_LIMITER=true
+      - TLS_CA_CERT=/app/certs/ca.pem
+      - TLS_CLIENT_CERT=/app/certs/client-cert.pem
+      - TLS_CLIENT_KEY=/app/certs/client-key.pem
+    volumes:
+      - ledgerdata:/app/data:ro
+      - ./certs:/app/certs:ro
+    depends_on:
+      - intent-service
+      - redis
+
+  # --- AIEN Scheduler Service ---
+  scheduler:
+    build:
+      context: .
+      dockerfile: scheduler/Dockerfile
+    container_name: aien-scheduler
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/aien?sslmode=disable
+      - NATS_URL=nats://nats:4222
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      intent-service:
+        condition: service_started
+
+  # --- AIEN Execution Engine ---
+  execution-engine:
+    build:
+      context: .
+      dockerfile: execution-engine/Dockerfile
+    container_name: aien-execution-engine
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/aien?sslmode=disable
+      - NATS_URL=nats://nats:4222
+      - WORKER_POOL_SIZE=20
+      - WALLET_SERVICE_ADDR=wallet:50052
+      - TLS_CA_CERT=/app/certs/ca.pem
+      - TLS_CLIENT_CERT=/app/certs/client-cert.pem
+      - TLS_CLIENT_KEY=/app/certs/client-key.pem
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      scheduler:
+        condition: service_started
+      wallet:
+        condition: service_started
+
+  # --- AIEN Wallet Service ---
+  wallet:
+    build:
+      context: .
+      dockerfile: wallet/Dockerfile
+    container_name: aien-wallet
+    ports:
+      - "50052:50052"
+    environment:
+      - WALLET_SERVICE_PORT=:50052
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/aien?sslmode=disable
+      - SCHEMA_PATH=/app/store/schema.sql
+      - TLS_CA_CERT=/app/certs/ca.pem
+      - TLS_SERVER_CERT=/app/certs/server-cert.pem
+      - TLS_SERVER_KEY=/app/certs/server-key.pem
+    volumes:
+      - ./certs:/app/certs:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # --- AIEN Validator Service ---
+  validator:
+    build:
+      context: .
+      dockerfile: validator/Dockerfile
+    container_name: aien-validator
+    environment:
+      - DATABASE_URL=postgres://postgres:postgres@postgres:5432/aien?sslmode=disable
+      - NATS_URL=nats://nats:4222
+      - LEDGER_PATH=/app/data/ledger.log
+    volumes:
+      - ledgerdata:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+      execution-engine:
+        condition: service_started
+
+  # --- Prometheus Telemetry Server ---
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: aien-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - gateway
+      - intent-service
+      - scheduler
+      - execution-engine
+      - validator
+
+  # --- Grafana Visualization Dashboard ---
+  grafana:
+    image: grafana/grafana:10.4.2
+    container_name: aien-grafana
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Default admin password for ease of setup
+      - GF_USERS_ALLOW_SIGN_UP=false
+    depends_on:
+      - prometheus
+
+  # --- Redis Cache & Rate Limiter ---
+  redis:
+    image: redis:7-alpine
+    container_name: aien-redis
+    ports:
+      - "6379:6379"
+
+volumes:
+  pgdata:
+  natsdata:
+  ledgerdata:

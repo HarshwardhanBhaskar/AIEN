@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wallet
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: wallet
+  template:
+    metadata:
+      labels:
+        app: wallet
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done']
+      containers:
+        - name: wallet
+          image: aien-wallet:latest
+          imagePullPolicy: Never
+          env:
+            - name: WALLET_SERVICE_PORT
+              value: ":50052"
+            - name: DATABASE_URL
+              value: "postgres://postgres:postgres@postgres:5432/aien?sslmode=disable"
+            - name: SCHEMA_PATH
+              value: "/app/store/schema.sql"
+            - name: TLS_CA_CERT
+              value: "/app/certs/ca.pem"
+            - name: TLS_SERVER_CERT
+              value: "/app/certs/server-cert.pem"
+            - name: TLS_SERVER_KEY
+              value: "/app/certs/server-key.pem"
+          ports:
+            - containerPort: 50052
+              name: grpc
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: certs-volume
+              mountPath: /app/certs
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 50052
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 50052
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        - name: certs-volume
+          secret:
+            secretName: aien-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: wallet
+spec:
+  ports:
+    - port: 50052
+      targetPort: 50052
+      name: grpc
+  selector:
+    app: wallet

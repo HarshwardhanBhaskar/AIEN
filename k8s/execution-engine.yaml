@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: execution-engine
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: execution-engine
+  template:
+    metadata:
+      labels:
+        app: execution-engine
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done']
+        - name: wait-for-nats
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z nats 4222; do echo waiting for nats; sleep 2; done']
+      containers:
+        - name: execution-engine
+          image: aien-execution-engine:latest
+          imagePullPolicy: Never
+          env:
+            - name: DATABASE_URL
+              value: "postgres://postgres:postgres@postgres:5432/aien?sslmode=disable"
+            - name: NATS_URL
+              value: "nats://nats:4222"
+            - name: WORKER_POOL_SIZE
+              value: "10"
+            - name: WALLET_SERVICE_ADDR
+              value: "wallet:50052"
+            - name: TLS_CA_CERT
+              value: "/app/certs/ca.pem"
+            - name: TLS_CLIENT_CERT
+              value: "/app/certs/client-cert.pem"
+            - name: TLS_CLIENT_KEY
+              value: "/app/certs/client-key.pem"
+          ports:
+            - containerPort: 8085
+              name: metrics
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: certs-volume
+              mountPath: /app/certs
+              readOnly: true
+      volumes:
+        - name: certs-volume
+          secret:
+            secretName: aien-certs

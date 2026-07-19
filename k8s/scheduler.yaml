@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scheduler
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: scheduler
+  template:
+    metadata:
+      labels:
+        app: scheduler
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done']
+        - name: wait-for-nats
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z nats 4222; do echo waiting for nats; sleep 2; done']
+      containers:
+        - name: scheduler
+          image: aien-scheduler:latest
+          imagePullPolicy: Never
+          env:
+            - name: DATABASE_URL
+              value: "postgres://postgres:postgres@postgres:5432/aien?sslmode=disable"
+            - name: NATS_URL
+              value: "nats://nats:4222"
+          ports:
+            - containerPort: 8084
+              name: metrics

@@ -1,0 +1,303 @@
+// Package intentv1 defines the Protocol Buffer and gRPC service contracts
+// for the AIEN Intent Service.
+//
+// WHAT IS A PROTOCOL BUFFER?
+// ==========================
+// Protocol Buffers (protobuf) is a language-neutral, platform-neutral,
+// extensible mechanism for serializing structured data. Think of it as a
+// more efficient, strongly-typed alternative to JSON.
+//
+// WHY NOT JUST USE JSON?
+// ======================
+// 1. Size: Protobuf binary encoding is 3-10x smaller than JSON.
+// 2. Speed: Serialization/deserialization is 20-100x faster.
+// 3. Schema: The .proto file IS the contract. Both client and server
+//    generate code from the same source of truth. No mismatch possible.
+// 4. Backward Compatibility: Field numbers (not names) identify fields
+//    on the wire. You can rename fields, add new ones, or deprecate old
+//    ones without breaking existing clients.
+//
+// WHAT IS gRPC?
+// =============
+// gRPC is a high-performance RPC (Remote Procedure Call) framework built
+// on top of HTTP/2 and Protocol Buffers. Instead of designing REST endpoints
+// and manually parsing JSON, you define service methods in a .proto file
+// and gRPC generates both client and server code for you.
+//
+// WHY gRPC OVER REST?
+// ===================
+// 1. Strong contracts: The .proto file enforces types at compile time.
+// 2. HTTP/2: Multiplexing, header compression, bidirectional streaming.
+// 3. Code generation: No hand-written HTTP clients or route handlers.
+// 4. Streaming: gRPC natively supports server-streaming, client-streaming,
+//    and bidirectional streaming — essential for distributed systems.
+//
+// TRADE-OFFS:
+// ===========
+// - gRPC is harder to debug with curl (binary protocol).
+//   → That's why our Gateway translates HTTP/JSON → gRPC.
+// - Browser support requires gRPC-Web or a proxy.
+//   → Our Gateway serves that purpose.
+
+syntax = "proto3";
+
+// The package name creates a namespace for these types.
+// Convention: <project>.<service>.<version>
+package aien.intent.v1;
+
+// go_package tells protoc-gen-go where to place the generated Go code.
+// This maps to the Go import path other services will use.
+option go_package = "github.com/aien-platform/aien/proto/intent/v1;intentv1";
+
+import "google/protobuf/timestamp.proto";
+
+// =============================================================================
+// CORE MESSAGES
+// =============================================================================
+
+// Intent represents a user's declarative request for a state transition.
+//
+// DESIGN DECISION: Why separate "type" and "payload"?
+// In traditional transaction systems, the operation IS the payload.
+// In an intent system, the TYPE tells the scheduler what execution
+// strategy to use, while the PAYLOAD contains the domain-specific data.
+// This separation enables the scheduler to optimize routing without
+// parsing application-level data.
+message Intent {
+  // Unique identifier for this intent (UUID v7, time-ordered).
+  // WHY UUID v7? Unlike UUID v4 (random), v7 embeds a timestamp,
+  // making it naturally sortable. This matters for our append-only
+  // ledger — entries are already in chronological order without
+  // needing a separate sort.
+  string id = 1;
+
+  // The type of intent. Determines which execution strategy the
+  // scheduler selects.
+  IntentType type = 2;
+
+  // Current lifecycle status of this intent.
+  IntentStatus status = 3;
+
+  // The submitter's identity. In Phase 1, this is a simple string
+  // identifier. Later, this becomes an Ed25519 public key.
+  string submitter_id = 4;
+
+  // The declarative payload describing WHAT the user wants to happen.
+  // This is intentionally bytes, not a nested message, because the
+  // payload schema varies by IntentType. The intent-service treats
+  // this as opaque; only the execution engine interprets it.
+  //
+  // DESIGN DECISION: Why bytes instead of google.protobuf.Any?
+  // google.protobuf.Any requires the receiver to have the type
+  // descriptor registered. Using bytes with a known IntentType
+  // gives us the same flexibility with simpler deserialization.
+  bytes payload = 5;
+
+  // Constraints the system must honor during execution.
+  IntentConstraints constraints = 6;
+
+  // Cryptographic signature over (type + payload + constraints + submitter_id).
+  // This proves the intent was created by the submitter and hasn't
+  // been tampered with. Hex encoded string.
+  string signature = 7;
+
+  // The submitter's Ed25519 public key (hex encoded).
+  // This acts as the cryptographic identity of the submitter.
+  string submitter_public_key = 10;
+
+  // Timestamps managed by the system, not the client.
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+// IntentType enumerates the categories of intents the system can process.
+//
+// WHY AN ENUM AND NOT A STRING?
+// Enums are validated at deserialization time. A typo like "trnasfer"
+// would be caught immediately rather than silently accepted and failing
+// later during execution. Enums also enable exhaustive switch statements
+// in Go, so the compiler warns if you forget to handle a new type.
+enum IntentType {
+  // Default value. Protobuf 3 requires the first enum value to be 0.
+  // We use this as "unspecified" to catch uninitialized fields.
+  INTENT_TYPE_UNSPECIFIED = 0;
+
+  // A value transfer between two parties.
+  INTENT_TYPE_TRANSFER = 1;
+
+  // A computation request to be executed on a node.
+  INTENT_TYPE_COMPUTE = 2;
+
+  // A data query across the distributed network.
+  INTENT_TYPE_QUERY = 3;
+
+  // A scheduled/recurring intent (cron-like).
+  INTENT_TYPE_SCHEDULED = 4;
+}
+
+// IntentStatus tracks the lifecycle of an intent through the system.
+//
+// STATE MACHINE:
+//   PENDING → VALIDATED → SCHEDULED → EXECUTING → COMPLETED
+//                                                → FAILED
+//   PENDING → REJECTED (validation failure)
+//   Any     → CANCELLED (by submitter)
+enum IntentStatus {
+  INTENT_STATUS_UNSPECIFIED = 0;
+
+  // Received by the system, awaiting validation.
+  INTENT_STATUS_PENDING = 1;
+
+  // Passed validation (signature, constraints, permissions).
+  INTENT_STATUS_VALIDATED = 2;
+
+  // Assigned to an execution node by the scheduler.
+  INTENT_STATUS_SCHEDULED = 3;
+
+  // Currently being executed on a node.
+  INTENT_STATUS_EXECUTING = 4;
+
+  // Execution completed successfully; result committed to ledger.
+  INTENT_STATUS_COMPLETED = 5;
+
+  // Execution failed after all retry attempts.
+  INTENT_STATUS_FAILED = 6;
+
+  // Rejected during validation (bad signature, violated constraints).
+  INTENT_STATUS_REJECTED = 7;
+
+  // Cancelled by the submitter before execution completed.
+  INTENT_STATUS_CANCELLED = 8;
+}
+
+// IntentConstraints specify the boundaries within which the system
+// must execute this intent. These are declarative — the submitter
+// says WHAT they want, not HOW to achieve it.
+//
+// DESIGN DECISION: Why constraints as a separate message?
+// Constraints are cross-cutting concerns (deadlines, cost limits,
+// priority) that apply regardless of IntentType. Embedding them
+// in the payload would force every execution engine to re-implement
+// constraint checking. By lifting them into a dedicated message,
+// the scheduler can enforce them centrally.
+message IntentConstraints {
+  // Maximum time the system has to complete this intent.
+  // After this deadline, the intent is marked FAILED.
+  google.protobuf.Timestamp deadline = 1;
+
+  // Execution priority. Higher values = higher priority.
+  // The scheduler uses this for queue ordering.
+  // Range: 0 (lowest) to 10 (highest). Default: 5.
+  int32 priority = 2;
+
+  // Maximum number of retry attempts on failure.
+  // 0 means no retries. Default: 3.
+  int32 max_retries = 3;
+
+  // If true, the intent is idempotent — safe to re-execute
+  // without side effects. This enables aggressive retry
+  // and speculative execution strategies.
+  bool idempotent = 4;
+}
+
+// =============================================================================
+// gRPC SERVICE DEFINITION
+// =============================================================================
+
+// IntentService is the core gRPC service for managing intents.
+//
+// WHY THESE THREE RPCS?
+// This follows the principle of starting with the minimum viable API.
+// SubmitIntent is the write path. GetIntent and ListIntents are the
+// read path. We can add UpdateIntent, CancelIntent, StreamIntents
+// later without breaking existing clients (protobuf backward compat).
+service IntentService {
+  // SubmitIntent accepts a new intent from a client.
+  // The service validates the intent, assigns it an ID, persists it,
+  // and returns the ID to the client.
+  rpc SubmitIntent(SubmitIntentRequest) returns (SubmitIntentResponse);
+
+  // GetIntent retrieves a single intent by its ID.
+  rpc GetIntent(GetIntentRequest) returns (GetIntentResponse);
+
+  // ListIntents returns a paginated list of intents, optionally
+  // filtered by status or submitter.
+  rpc ListIntents(ListIntentsRequest) returns (ListIntentsResponse);
+}
+
+// =============================================================================
+// REQUEST / RESPONSE MESSAGES
+// =============================================================================
+
+// DESIGN DECISION: Why separate Request/Response wrappers?
+// Instead of passing the Intent message directly, we wrap it.
+// This lets us evolve the API without changing the Intent schema.
+// For example, we can add request metadata (trace IDs, auth tokens)
+// without touching the core Intent definition.
+
+message SubmitIntentRequest {
+  // The intent type — tells the system what execution strategy to use.
+  IntentType type = 1;
+
+  // The application-level payload.
+  bytes payload = 2;
+
+  // Execution constraints.
+  IntentConstraints constraints = 3;
+
+  // Submitter identity.
+  string submitter_id = 4;
+
+  // Cryptographic signature (hex encoded string).
+  string signature = 5;
+
+  // Submitter Ed25519 public key (hex encoded).
+  string submitter_public_key = 6;
+}
+
+message SubmitIntentResponse {
+  // The system-assigned intent ID.
+  string intent_id = 1;
+
+  // The initial status (should always be PENDING).
+  IntentStatus status = 2;
+
+  // When the system received this intent.
+  google.protobuf.Timestamp created_at = 3;
+}
+
+message GetIntentRequest {
+  // The intent ID to look up.
+  string intent_id = 1;
+}
+
+message GetIntentResponse {
+  // The full intent record.
+  Intent intent = 1;
+}
+
+message ListIntentsRequest {
+  // Optional: filter by status.
+  IntentStatus status_filter = 1;
+
+  // Optional: filter by submitter.
+  string submitter_id_filter = 2;
+
+  // Pagination: maximum number of results to return.
+  int32 page_size = 3;
+
+  // Pagination: token from a previous ListIntentsResponse.
+  string page_token = 4;
+}
+
+message ListIntentsResponse {
+  // The matching intents.
+  repeated Intent intents = 1;
+
+  // Token to pass in the next ListIntentsRequest for pagination.
+  // Empty if there are no more results.
+  string next_page_token = 2;
+
+  // Total count of intents matching the filter (before pagination).
+  int32 total_count = 3;
+}

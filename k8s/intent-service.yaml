@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intent-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: intent-service
+  template:
+    metadata:
+      labels:
+        app: intent-service
+    spec:
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z postgres 5432; do echo waiting for postgres; sleep 2; done']
+        - name: wait-for-nats
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z nats 4222; do echo waiting for nats; sleep 2; done']
+      containers:
+        - name: intent-service
+          image: aien-intent-service:latest
+          imagePullPolicy: Never
+          env:
+            - name: INTENT_SERVICE_PORT
+              value: ":50051"
+            - name: DATABASE_URL
+              value: "postgres://postgres:postgres@postgres:5432/aien?sslmode=disable"
+            - name: NATS_URL
+              value: "nats://nats:4222"
+            - name: SCHEMA_PATH
+              value: "/app/store/schema.sql"
+            - name: TLS_CA_CERT
+              value: "/app/certs/ca.pem"
+            - name: TLS_SERVER_CERT
+              value: "/app/certs/server-cert.pem"
+            - name: TLS_SERVER_KEY
+              value: "/app/certs/server-key.pem"
+          ports:
+            - containerPort: 50051
+              name: grpc
+            - containerPort: 8082
+              name: metrics
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: certs-volume
+              mountPath: /app/certs
+              readOnly: true
+          livenessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 50051
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: certs-volume
+          secret:
+            secretName: aien-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intent-service
+spec:
+  ports:
+    - port: 50051
+      targetPort: 50051
+  selector:
+    app: intent-service

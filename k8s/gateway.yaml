@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: aien-gateway:latest
+          imagePullPolicy: Never
+          env:
+            - name: GATEWAY_PORT
+              value: ":8081"
+            - name: INTENT_SERVICE_ADDR
+              value: "intent-service:50051"
+            - name: WALLET_SERVICE_ADDR
+              value: "wallet:50052"
+            - name: REDIS_URL
+              value: "redis:6379"
+            - name: DISABLE_RATE_LIMITER
+              value: "true"
+            - name: TLS_CA_CERT
+              value: "/app/certs/ca.pem"
+            - name: TLS_CLIENT_CERT
+              value: "/app/certs/client-cert.pem"
+            - name: TLS_CLIENT_KEY
+              value: "/app/certs/client-key.pem"
+          ports:
+            - containerPort: 8081
+              name: http
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          volumeMounts:
+            - name: ledger-storage
+              mountPath: /app/data
+              readOnly: true
+            - name: certs-volume
+              mountPath: /app/certs
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8081
+            initialDelaySeconds: 2
+            periodSeconds: 5
+      volumes:
+        - name: ledger-storage
+          persistentVolumeClaim:
+            claimName: ledger-storage-validator-0
+        - name: certs-volume
+          secret:
+            secretName: aien-certs
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 8081
+      targetPort: 8081
+      nodePort: 30081
+  selector:
+    app: gateway

@@ -174,7 +174,19 @@ body {
 }
 
 .nav-icon {
-  font-size: 1.1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  color: inherit;
+}
+
+.svg-icon {
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
+  fill: none;
 }
 
 .port-label {
@@ -284,7 +296,12 @@ body {
 }
 
 .header-icon {
-  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  color: var(--primary);
 }
 
 .card-header h3 {

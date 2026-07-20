@@ -785,8 +785,8 @@ func (gw *Gateway) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 
-		// Exempt public dashboard assets, login, and health check
-		if path == "/health" || path == "/api/login" || strings.HasPrefix(path, "/dashboard/") {
+		// Exempt public dashboard assets, login, health check, and metrics endpoint
+		if path == "/health" || path == "/metrics" || path == "/api/login" || strings.HasPrefix(path, "/dashboard/") {
 			next.ServeHTTP(w, r)
 			return
 		}

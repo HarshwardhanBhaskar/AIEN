@@ -3,130 +3,192 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AIEN Control Center & Block Explorer</title>
+  <title>AIEN Premium Control Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="app-container">
-    <header class="app-header">
-      <div class="logo-area">
+  <div class="app-layout">
+    <!-- Left Navigation Sidebar -->
+    <aside class="app-sidebar">
+      <div class="sidebar-header">
         <div class="logo-orb"></div>
-        <h1>AIEN</h1>
-        <span class="badge">Control Center</span>
+        <div class="logo-text">
+          <h2>AIEN</h2>
+          <span>PROTOCOL MONITOR</span>
+        </div>
       </div>
-      <div class="header-settings" style="display: flex; align-items: center; gap: 12px;">
-        <span class="user-profile" id="userProfile" style="font-size: 13px; color: #a0aec0; font-weight: 500; display: none;">admin</span>
-        <button id="btnLogout" class="btn btn-secondary" style="font-size: 11px; padding: 4px 10px; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15); color: #fff; border-radius: 4px; cursor: pointer; transition: all 0.2s; display: none;">Logout</button>
-      </div>
-      <div class="system-status">
-        <span class="status-indicator online"></span>
-        <span class="status-text">Network Operational</span>
-      </div>
-    </header>
 
-    <!-- Metrics Grid -->
-    <div class="dashboard-grid">
-      <!-- Left Column: Key Management & Submission -->
-      <div class="left-column">
-        <!-- Key Management Card -->
-        <section class="card panel-keys">
+      <div class="status-box">
+        <div class="status-indicator-wrapper">
+          <span class="status-beacon"></span>
+          <span class="status-text">NETWORK OPERATIONAL</span>
+        </div>
+        <div class="tps-display">
+          <span class="tps-value" id="tpsCounter">0.0</span>
+          <span class="tps-label">TPS OVERALL</span>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section">System Integrations</div>
+        <ul class="nav-list">
+          <li class="nav-item active">
+            <span class="nav-icon">📊</span>
+            <span>Transaction Console</span>
+          </li>
+          <li class="nav-item">
+            <span class="nav-icon">⚙️</span>
+            <span>gRPC Gateway: <strong class="port-label">8081</strong></span>
+          </li>
+          <li class="nav-item">
+            <span class="nav-icon">🍃</span>
+            <span>NATS Stream: <strong class="port-label">Active</strong></span>
+          </li>
+          <li class="nav-item">
+            <span class="nav-icon">🗄️</span>
+            <span>Postgres DB: <strong class="port-label">5432</strong></span>
+          </li>
+        </ul>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-info">
+          <span class="user-avatar">👤</span>
+          <span class="username" id="userProfile">admin</span>
+        </div>
+        <button id="btnLogout" class="btn-logout">Logout</button>
+      </div>
+    </aside>
+
+    <!-- Main Workspace Console -->
+    <main class="console-workspace">
+      <!-- Top Row Grid: Crypto Keypair Gen & Intent Form -->
+      <div class="workspace-row top-row">
+        <!-- Key Manager Panel -->
+        <section class="console-card">
           <div class="card-header">
-            <span class="card-icon">🔑</span>
-            <h2>Client Key Management</h2>
+            <div class="header-left">
+              <span class="header-icon">🔑</span>
+              <h3>Client Cryptographic Keys</h3>
+            </div>
+            <span class="sys-badge security">ED25519</span>
           </div>
           <div class="card-body">
-            <p class="description">Generate cryptographic Ed25519 keypairs locally inside your browser using the native Web Crypto API.</p>
-            <div class="key-field">
+            <p class="section-desc">Generate asymmetric Ed25519 keys locally inside your browser to sign transfer intents.</p>
+            <div class="field-group">
               <label>Public Key (Hex)</label>
-              <input type="text" id="publicKey" readonly placeholder="Click generate to create keypair...">
+              <div class="input-with-action">
+                <input type="text" id="publicKey" readonly placeholder="Click generate keys...">
+                <button type="button" class="btn-copy" onclick="copyField('publicKey')" title="Copy Hex">Copy</button>
+              </div>
             </div>
-            <div class="key-field">
+            <div class="field-group">
               <label>Private Key (Seed Hex)</label>
-              <input type="password" id="privateKey" readonly placeholder="Private key seed is kept in memory...">
+              <div class="input-with-action">
+                <input type="password" id="privateKey" readonly placeholder="Seed kept in browser session...">
+                <button type="button" class="btn-copy" onclick="copyField('privateKey')" title="Copy Seed">Copy</button>
+              </div>
             </div>
-            <button id="btnGenerateKeys" class="btn btn-primary">Generate Keypair</button>
+            <button id="btnGenerateKeys" class="btn-action primary-gradient">Generate Private Keypair</button>
           </div>
         </section>
 
-        <!-- Intent Ingestion Card -->
-        <section class="card panel-ingest">
+        <!-- Submit Intent Panel -->
+        <section class="console-card">
           <div class="card-header">
-            <span class="card-icon">🚀</span>
-            <h2>Submit Signed Intent</h2>
+            <div class="header-left">
+              <span class="header-icon">🚀</span>
+              <h3>Submit Signed Transfer Intent</h3>
+            </div>
+            <span class="sys-badge" id="sigValidationBadge">NO KEY LOADED</span>
           </div>
           <div class="card-body">
             <form id="intentForm">
-              <div class="form-row">
-                <div class="form-field">
+              <div class="form-grid">
+                <div class="field-group">
                   <label for="intentType">Intent Type</label>
                   <select id="intentType">
                     <option value="TRANSFER">TRANSFER</option>
                     <option value="COMPUTE">COMPUTE</option>
                   </select>
                 </div>
-                <div class="form-field">
+                <div class="field-group">
                   <label for="submitterId">Submitter ID</label>
                   <input type="text" id="submitterId" value="user-alice-001" required>
                 </div>
               </div>
-              <div class="form-field">
+              <div class="field-group">
                 <label for="payload">Payload Data (JSON format)</label>
-                <textarea id="payload" rows="3" required>{"from":"alice","to":"bob","amount":100}</textarea>
+                <textarea id="payload" rows="2" required>{"from":"alice","to":"bob","amount":100}</textarea>
               </div>
-              <div class="crypto-details">
-                <div class="details-header">
-                  <span>Cryptographic Signature Payload</span>
-                  <span class="badge badge-sec">Ed25519</span>
-                </div>
-                <div id="sigBytesPreview" class="sig-preview">INTENT_TYPE_TRANSFER|user-alice-001|{"from":"alice","to":"bob","amount":100}</div>
+              <div class="crypto-signature-preview">
+                <span class="preview-title">Plaintext Signature Bytes</span>
+                <div id="sigBytesPreview" class="preview-code">INTENT_TYPE_TRANSFER|user-alice-001|{"from":"alice","to":"bob","amount":100}</div>
               </div>
-              <button type="submit" id="btnSubmitIntent" class="btn btn-success" disabled>Sign & Submit Intent</button>
+              <button type="submit" id="btnSubmitIntent" class="btn-action success-gradient" disabled>Sign & Dispatch Intent</button>
             </form>
           </div>
         </section>
       </div>
 
-      <!-- Right Column: Active Pipeline & Explorer -->
-      <div class="right-column">
-        <!-- Pipeline Monitor -->
-        <section class="card panel-pipeline">
-          <div class="card-header">
-            <span class="card-icon">📊</span>
-            <h2>Active Transaction Pipeline</h2>
+      <!-- Middle Row: Active Transaction Pipeline -->
+      <section class="console-card pipeline-section">
+        <div class="card-header">
+          <div class="header-left">
+            <span class="header-icon">🔄</span>
+            <h3>Distributed Execution Pipeline</h3>
           </div>
-          <div class="card-body">
-            <div class="pipeline-columns">
-              <div class="pipeline-col">
-                <div class="col-title">Pending</div>
-                <div class="pipeline-list" id="listPending"></div>
+          <span class="pulse-indicator">Active Processing</span>
+        </div>
+        <div class="card-body">
+          <div class="pipeline-lanes">
+            <div class="lane">
+              <div class="lane-header">
+                <span class="lane-title">Pending</span>
+                <span class="lane-count-badge" id="countPending">0</span>
               </div>
-              <div class="pipeline-col">
-                <div class="col-title">Scheduled</div>
-                <div class="pipeline-list" id="listScheduled"></div>
+              <div class="lane-list" id="listPending"></div>
+            </div>
+            <div class="lane">
+              <div class="lane-header">
+                <span class="lane-title">Scheduled</span>
+                <span class="lane-count-badge" id="countScheduled">0</span>
               </div>
-              <div class="pipeline-col">
-                <div class="col-title">Executing</div>
-                <div class="pipeline-list" id="listExecuting"></div>
+              <div class="lane-list" id="listScheduled"></div>
+            </div>
+            <div class="lane">
+              <div class="lane-header">
+                <span class="lane-title">Executing</span>
+                <span class="lane-count-badge" id="countExecuting">0</span>
               </div>
-              <div class="pipeline-col">
-                <div class="col-title">Completed</div>
-                <div class="pipeline-list" id="listCompleted"></div>
+              <div class="lane-list" id="listExecuting"></div>
+            </div>
+            <div class="lane">
+              <div class="lane-header">
+                <span class="lane-title">Completed</span>
+                <span class="lane-count-badge" id="countCompleted">0</span>
               </div>
+              <div class="lane-list" id="listCompleted"></div>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <!-- Block Explorer -->
-        <section class="card panel-explorer">
+      <!-- Bottom Row: Dual Pane Block Explorer & Terminal Logs -->
+      <div class="workspace-row bottom-row">
+        <!-- Block Explorer Panel -->
+        <section class="console-card explorer-card">
           <div class="card-header">
-            <span class="card-icon">⛓️</span>
-            <h2>WAL Ledger Block Explorer</h2>
+            <div class="header-left">
+              <span class="header-icon">⛓️</span>
+              <h3>Write-Ahead Log (WAL) Block Explorer</h3>
+            </div>
           </div>
-          <div class="card-body">
-            <div class="table-container">
+          <div class="card-body scroll-pane">
+            <div class="table-wrapper">
               <table class="explorer-table">
                 <thead>
                   <tr>
@@ -134,41 +196,54 @@
                     <th>Intent ID</th>
                     <th>Type</th>
                     <th>Status</th>
-                    <th>Previous Hash</th>
-                    <th>Block Hash</th>
+                    <th>Hash</th>
                   </tr>
                 </thead>
                 <tbody id="ledgerBody">
                   <tr>
-                    <td colspan="6" class="empty-state">No blocks synced yet. Submit an intent above!</td>
+                    <td colspan="5" class="empty-state">No blocks mined yet. Submit an intent above!</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
         </section>
+
+        <!-- Live Terminal logs -->
+        <section class="console-card terminal-card">
+          <div class="card-header">
+            <div class="header-left">
+              <span class="header-icon">💻</span>
+              <h3>Live Network & Audit Logs</h3>
+            </div>
+            <button type="button" class="btn-clear" onclick="clearTerminal()">Clear</button>
+          </div>
+          <div class="card-body terminal-body" id="terminalLog">
+            <div class="terminal-line system">[SYSTEM] Console session active. Monitoring gRPC endpoints...</div>
+          </div>
+        </section>
       </div>
-    </div>
+    </main>
   </div>
 
-  <!-- Login Overlay -->
+  <!-- Authenticator overlay -->
   <div id="loginOverlay" class="login-overlay">
-    <div class="login-card">
-      <div class="login-header">
-        <div class="logo-orb"></div>
-        <h2>AIEN Platform</h2>
-        <p>Control Center & Block Explorer</p>
+    <div class="login-box">
+      <div class="login-logo">
+        <div class="logo-orb large"></div>
+        <h2>AIEN PLATFORM</h2>
+        <p>Decentralized Transaction Network</p>
       </div>
       <form id="loginForm">
-        <div class="form-field" style="margin-bottom: 16px;">
-          <label for="loginUsername" style="display: block; margin-bottom: 6px; font-size: 12px; color: #a0aec0;">Username</label>
-          <input type="text" id="loginUsername" placeholder="Enter username..." required style="width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px; padding: 8px 12px; font-size: 13px;">
+        <div class="field-group">
+          <label for="loginUsername">Admin Username</label>
+          <input type="text" id="loginUsername" placeholder="Enter admin username..." required>
         </div>
-        <div class="form-field" style="margin-bottom: 24px;">
-          <label for="loginPassword" style="display: block; margin-bottom: 6px; font-size: 12px; color: #a0aec0;">Password</label>
-          <input type="password" id="loginPassword" placeholder="Enter password..." required style="width: 100%; box-sizing: border-box; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: #fff; border-radius: 6px; padding: 8px 12px; font-size: 13px;">
+        <div class="field-group">
+          <label for="loginPassword">Credential Token / Password</label>
+          <input type="password" id="loginPassword" placeholder="Enter password..." required>
         </div>
-        <button type="submit" id="btnLoginSubmit" class="btn btn-primary" style="width: 100%; padding: 10px; font-weight: 600; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Authenticate</button>
+        <button type="submit" id="btnLoginSubmit" class="btn-action primary-gradient">Authenticate Console</button>
       </form>
     </div>
   </div>

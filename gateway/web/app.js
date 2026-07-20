@@ -1,5 +1,7 @@
 let currentPrivateKey = null;
 let currentPublicKeyHex = '';
+let lastCompletedCount = 0;
+let lastSyncTime = Date.now();
 
 function getAuthHeader() {
   const token = localStorage.getItem("jwt_token");
@@ -22,6 +24,43 @@ const selIntentType = document.getElementById('intentType');
 const txtSubmitterId = document.getElementById('submitterId');
 const txtPayload = document.getElementById('payload');
 const sigBytesPreview = document.getElementById('sigBytesPreview');
+const sigValidationBadge = document.getElementById('sigValidationBadge');
+const tpsCounter = document.getElementById('tpsCounter');
+const terminalLog = document.getElementById('terminalLog');
+
+// Copy Field Helper
+function copyField(fieldId) {
+  const input = document.getElementById(fieldId);
+  if (!input || !input.value) {
+    showToast("Field is empty, nothing to copy.", "error");
+    return;
+  }
+  input.select();
+  input.setSelectionRange(0, 99999);
+  navigator.clipboard.writeText(input.value);
+  showToast("Copied to clipboard!", "success");
+}
+
+// Terminal Logging Helper
+function appendTerminalLog(message, type = 'system') {
+  const line = document.createElement('div');
+  const now = new Date().toLocaleTimeString();
+  line.className = `terminal-line ${type}`;
+  line.textContent = `[${now}] ${type.toUpperCase()} - ${message}`;
+  terminalLog.appendChild(line);
+  
+  // Auto scroll to bottom
+  terminalLog.scrollTop = terminalLog.scrollHeight;
+  
+  // Limit terminal history to 100 lines
+  while (terminalLog.children.length > 100) {
+    terminalLog.removeChild(terminalLog.firstChild);
+  }
+}
+
+function clearTerminal() {
+  terminalLog.innerHTML = `<div class="terminal-line system">[SYSTEM] Console log cleared. Monitoring active...</div>`;
+}
 
 // Helpers: buffer to hex
 function bufToHex(buffer) {
@@ -51,7 +90,11 @@ async function generateKeys() {
     txtPrivateKey.value = "ed25519_in_memory_session_seed_keys";
     
     btnSubmitIntent.disabled = false;
+    sigValidationBadge.className = "sys-badge valid";
+    sigValidationBadge.textContent = "KEY LOADED (VALID)";
+    
     showToast("Keypair generated successfully!", "success");
+    appendTerminalLog(`Generated local Ed25519 Keypair. PubKey: ${currentPublicKeyHex.substring(0, 16)}...`, 'system');
     updateSigPreview();
   } catch (err) {
     showToast("Keypair generation failed: " + err.message, "error");
@@ -75,7 +118,7 @@ function updateSigPreview() {
 async function submitIntent(e) {
   e.preventDefault();
   if (!currentPrivateKey) {
-    showToast("No active private key loaded. Click generate keys first.", "error");
+    showToast("No active private key loaded.", "error");
     return;
   }
 
@@ -103,6 +146,8 @@ async function submitIntent(e) {
       submitter_public_key: currentPublicKeyHex
     };
 
+    appendTerminalLog(`Signing intent payload using local Ed25519 certificate...`, 'system');
+
     // Post to gateway
     const response = await fetch('/intents', {
       method: 'POST',
@@ -118,13 +163,15 @@ async function submitIntent(e) {
       throw new Error(resJSON.error || "Submission failed");
     }
 
-    showToast(`Intent submitted! ID: ${resJSON.intent_id}`, "success");
+    showToast(`Intent submitted! ID: ${resJSON.intent_id.substring(0,8)}...`, "success");
+    appendTerminalLog(`Successfully submitted intent ${resJSON.intent_id} (Type: ${requestData.type})`, 'nats');
     
     // Quick refresh of lists
     fetchIntents();
     fetchLedger();
   } catch (err) {
     showToast(err.message, "error");
+    appendTerminalLog(`Failed to submit intent: ${err.message}`, 'exec');
   }
 }
 
@@ -154,24 +201,70 @@ async function fetchIntents() {
     completedList.innerHTML = '';
 
     const intents = data.intents || [];
+    let countPen = 0, countSch = 0, countExe = 0, countCom = 0;
+
     intents.forEach(intent => {
+      // Parse details from JSON payload
+      let detailsHtml = '';
+      try {
+        const payloadData = JSON.parse(intent.payload);
+        if (payloadData.from && payloadData.to) {
+          detailsHtml = `
+            <div class="tx-accounts">
+              <span class="acc-pill" title="${payloadData.from}">${payloadData.from}</span>
+              <span>➜</span>
+              <span class="acc-pill" title="${payloadData.to}">${payloadData.to}</span>
+            </div>
+            <div class="tx-amount">$${parseFloat(payloadData.amount).toFixed(2)}</div>
+          `;
+        }
+      } catch (e) {
+        // Fallback for non-json
+        detailsHtml = `<div class="tx-accounts" style="font-size:0.65rem; word-break:break-all;">${intent.payload}</div>`;
+      }
+
       const card = document.createElement('div');
-      card.className = 'pipeline-item';
+      card.className = 'transaction-card';
+      const cleanType = intent.type.replace('INTENT_TYPE_', '').toLowerCase();
       card.innerHTML = `
-        <span class="item-id" title="${intent.id}">${intent.id.substring(0, 8)}...</span>
-        <span class="item-type">${intent.type.replace('INTENT_TYPE_', '')}</span>
+        <div class="tx-header">
+          <span class="tx-id" title="${intent.id}">${intent.id.substring(0, 8)}...</span>
+          <span class="tx-badge ${cleanType}">${cleanType}</span>
+        </div>
+        ${detailsHtml}
       `;
 
       if (intent.status === 'INTENT_STATUS_PENDING') {
         pendingList.appendChild(card);
+        countPen++;
       } else if (intent.status === 'INTENT_STATUS_SCHEDULED') {
         scheduledList.appendChild(card);
+        countSch++;
       } else if (intent.status === 'INTENT_STATUS_EXECUTING') {
         executingList.appendChild(card);
+        countExe++;
       } else if (intent.status === 'INTENT_STATUS_COMPLETED' || intent.status === 'INTENT_STATUS_FAILED') {
         completedList.appendChild(card);
+        countCom++;
       }
     });
+
+    // Update count labels
+    document.getElementById('countPending').textContent = countPen;
+    document.getElementById('countScheduled').textContent = countSch;
+    document.getElementById('countExecuting').textContent = countExe;
+    document.getElementById('countCompleted').textContent = countCom;
+
+    // Calculate TPS
+    const now = Date.now();
+    const timeDelta = (now - lastSyncTime) / 1000.0;
+    if (timeDelta > 0 && lastCompletedCount > 0 && countCom > lastCompletedCount) {
+      const tps = (countCom - lastCompletedCount) / timeDelta;
+      tpsCounter.textContent = tps.toFixed(1);
+    }
+    lastCompletedCount = countCom;
+    lastSyncTime = now;
+
   } catch (err) {
     console.error("Failed to fetch intents pipeline", err);
   }
@@ -195,10 +288,17 @@ async function fetchLedger() {
     if (blocks.length === 0) {
       tbody.innerHTML = `
         <tr>
-          <td colspan="6" class="empty-state">No blocks synced yet. Submit an intent above!</td>
+          <td colspan="5" class="empty-state">No blocks mined yet. Submit an intent above!</td>
         </tr>
       `;
       return;
+    }
+
+    // Check if we have new blocks to log in the terminal
+    const existingRows = tbody.querySelectorAll('tr').length;
+    if (blocks.length > existingRows && existingRows > 1) {
+      const newBlock = blocks[0];
+      appendTerminalLog(`[BLOCK MINED] Index #${newBlock.index} appended to ledger with hash ${newBlock.hash.substring(0, 12)}...`, 'wal');
     }
 
     tbody.innerHTML = '';
@@ -206,15 +306,14 @@ async function fetchLedger() {
       const tr = document.createElement('tr');
       // Highlight the first (newest) row with a pulsing fade
       if (index === 0) {
-        tr.style.backgroundColor = 'rgba(16, 185, 129, 0.03)';
+        tr.style.backgroundColor = 'rgba(59, 130, 246, 0.03)';
       }
       tr.innerHTML = `
         <td><strong>#${block.index}</strong></td>
-        <td><span class="item-id" title="${block.intent_id}">${block.intent_id.substring(0, 18)}...</span></td>
-        <td><span class="badge badge-sec">${block.type.replace('INTENT_TYPE_', '')}</span></td>
-        <td><span class="badge ${block.status === 'INTENT_STATUS_COMPLETED' ? 'online' : 'badge-sec'}">${block.status.replace('INTENT_STATUS_', '')}</span></td>
-        <td class="hash-cell" title="${block.prev_hash}">${block.prev_hash.substring(0, 12)}...</td>
-        <td class="hash-cell highlight" title="${block.hash}">${block.hash.substring(0, 12)}...</td>
+        <td><span class="tx-id" title="${block.intent_id}">${block.intent_id.substring(0, 12)}...</span></td>
+        <td><span class="sys-badge security">${block.type.replace('INTENT_TYPE_', '')}</span></td>
+        <td><span class="sys-badge valid">${block.status.replace('INTENT_STATUS_', '')}</span></td>
+        <td class="hash-text glow" title="${block.hash}">${block.hash.substring(0, 12)}...</td>
       `;
       tbody.appendChild(tr);
     });
@@ -247,16 +346,12 @@ function checkSession() {
   if (token && username) {
     loginOverlay.classList.add('hidden');
     userProfile.textContent = username;
-    userProfile.style.display = 'inline';
-    btnLogout.style.display = 'inline';
     
     // Initial fetch once authenticated
     fetchIntents();
     fetchLedger();
   } else {
     loginOverlay.classList.remove('hidden');
-    userProfile.style.display = 'none';
-    btnLogout.style.display = 'none';
   }
 }
 
@@ -282,6 +377,7 @@ async function handleLogin(e) {
     localStorage.setItem("jwt_token", resJSON.token);
     localStorage.setItem("jwt_user", username);
     showToast("Authenticated successfully!", "success");
+    appendTerminalLog(`Successfully authenticated administrator session: '${username}'`, 'system');
     
     loginUsername.value = '';
     loginPassword.value = '';
